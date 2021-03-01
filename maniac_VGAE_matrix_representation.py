@@ -1,5 +1,5 @@
 
-from comet_ml import Experiment
+#from comet_ml import Experiment
 
 import os
 
@@ -75,7 +75,7 @@ else:
 SUMMARY_WRITER = True
 
 if SUMMARY_WRITER:
-    writer = SummaryWriter("./runs1/maniac_graphconv_3layer_kernel_128_different_representation_node_edge_action")
+    writer = SummaryWriter("./runs1/maniac_graphconv_3layer_kernel_128_different_representation_action_node_channels*2_crossentloss_latentspace")
 
 
 '''
@@ -203,9 +203,15 @@ class Encoder(torch.nn.Module):
         self.conv_logstd = GCNConv(4 * out_channels, out_channels, cached=False)
         '''
 
+        """
+        Kernel isimlendirme -> 8 * out_channels -> out_channels: kernel128
+                            -> 4 * out_channels -> out_channels: kernel64
+                            -> 16 * out_channels -> out_channels: kernel256
+        """
+        
         self.conv1 = pyg_nn.GraphConv(len(cfg.objects), 16 * out_channels, aggr="mean")
         self.conv2 = pyg_nn.GraphConv(16 * out_channels, 8 * out_channels, aggr="mean")
-        #self.conv3 = pyg_nn.GraphConv(8 * out_channels, 4 * out_channels, aggr="mean")
+        #self.conv3 = pyg_nn.GraphConv(32 * out_channels, 16 * out_channels, aggr="mean")
         #self.conv4 = pyg_nn.GraphConv(128 * out_channels, 64 * out_channels, aggr="mean")
         #self.conv5 = pyg_nn.GraphConv(64 * out_channels, 32 * out_channels, aggr="mean")
         #self.conv6 = pyg_nn.GraphConv(32 * out_channels, 16 * out_channels, aggr="mean")
@@ -298,7 +304,24 @@ class  Decoder(torch.nn.Module):
 
         #return torch.sigmoid(value) if sigmoid else value
 
+
         adj = torch.matmul(value, value.t())
+
+        """
+        diag_adj = torch.diag(adj, 0)
+        diag_adj = diag_adj / 21.0
+
+        adj = adj.cpu().detach().numpy()
+        diag_adj = diag_adj.cpu().detach().numpy()
+
+        row,col = np.diag_indices(adj.shape[0])
+        adj[row,col] = np.array(diag_adj)
+
+        adj = torch.from_numpy(adj)
+        print("adj", adj, torch.sigmoid(adj))
+        """
+
+        #print("adj decoder", adj, torch.sigmoid(adj))
         return torch.sigmoid(adj) if sigmoid else adj
 
 
@@ -309,13 +332,10 @@ class  Decoder(torch.nn.Module):
     Node classification
 '''
 class Predictor(torch.nn.Module):
-    def __init__(self): #dataset
+    def __init__(self, z_channels):
         super(Predictor, self).__init__()
-        #self.conv11 = GCNConv(21, 16) #dataset.num_features, args.hidden
-        #self.conv21 = GCNConv(16, len(cfg.objects)) #args.hidden, dataset.num_classes
 
-        #self.conv11 = nn.Conv1d(21, 16, 1, stride=2)
-        #self.conv21 = nn.Conv1d(16, len(cfg.objects), 1, stride=2)
+        self.lin1 = nn.Linear(z_channels, 21)
     
     '''
     def reset_parameters(self):
@@ -324,14 +344,10 @@ class Predictor(torch.nn.Module):
     '''
 
     def forward(self, data):
-        #x, edge_index = data.x, data.edge_index
-        #x = F.relu(self.conv11(data))
-        #x = F.dropout(x, p=0.5, training=self.training)
-        #x = F.relu(self.conv21(x))
+
+        data = self.lin1(data).relu()
 
         return F.log_softmax(data, dim=1)
-        #return data
-
 
 '''
     Action classification
@@ -343,6 +359,8 @@ class ActionPredictor(torch.nn.Module):
         #self.lstm = torch.nn.LSTM(node_num, channels, 4, dropout=0)
         #self.conv = nn.Conv1d(channels, node_num, 1)
         #self.conv2 = nn.Conv1d(29, 29, 1)
+        
+        #self.lin1 = nn.Linear(channels, channels)
         self.lin2 = nn.Linear(channels, len(cfg.action_map))
 
         self.logsoftmax = nn.LogSoftmax(dim=1)
@@ -352,7 +370,8 @@ class ActionPredictor(torch.nn.Module):
         #data = data.unsqueeze(dim=2)
 
         data = global_mean_pool(data, batch)
-
+        
+        #data = self.lin1(data).relu()
         data = self.lin2(data)
 
         return self.logsoftmax(data)
@@ -367,12 +386,14 @@ class graphNet(torch.nn.Module):
         super(graphNet, self).__init__()
         #self.decoder = Decoder(channels, len(cfg.objects))
 
-        self.model = pyg_nn.VGAE(Encoder(len(cfg.objects), channels), Decoder(channels, len(cfg.objects))).to(dev) #decoder = Decoder(len(cfg.objects))).to(dev)
+        out_channels = 42
+
+        self.model = pyg_nn.VGAE(Encoder(len(cfg.objects), out_channels), decoder=Decoder(out_channels, len(cfg.objects))).to(dev) #decoder = Decoder(len(cfg.objects))).to(dev)
         #self.model = pyg_nn.ARGVA(Encoder(21, channels)).to(dev)
 
-        #self.predictor = Predictor().to(dev)
+        self.predictor = Predictor(out_channels).to(dev)
 
-        self.actionpredictor = ActionPredictor(channels).to(dev)
+        self.actionpredictor = ActionPredictor(out_channels).to(dev)
 
         
     def forward(self, x, train_flag):
@@ -395,25 +416,25 @@ class graphNet(torch.nn.Module):
         if train_flag == True: 
             z = self.model.encode(x.x, x.train_pos_edge_index)          # Encoder input
 
-            #p_z = self.predictor(z)                                     # Prediction input
+            p_z = self.predictor(z)                                     # Prediction input
 
             a_z = self.actionpredictor(z, batch)
 
             #q_z = self.model.decoder(z, x.train_pos_edge_index)        # Decoder input: Modelin test fonksiyonunda decoder zaten kullanılıyor.
 
-            return a_z, z, x.train_pos_edge_index, x.train_neg_edge_index
+            return p_z, a_z, z, x.train_pos_edge_index, x.train_neg_edge_index
             #return p_z, a_z, z, x.train_pos_edge_index, x.train_neg_adj_mask, x.test_pos_edge_index, x.test_neg_edge_index
 
         else:
             z = self.model.encode(x.x, x.train_pos_edge_index)          # Encoder input
 
-            #p_z = self.predictor(z)                                     # Prediction input
+            p_z = self.predictor(z)                                     # Prediction input
 
             a_z = self.actionpredictor(z, batch)
 
             #q_z = self.model.decoder(z, x.test_pos_edge_index)         # Decoder input: Modelin test fonksiyonunda decoder zaten kullanılıyor.
 
-            return a_z, z, x.train_pos_edge_index, x.train_neg_edge_index
+            return p_z, a_z, z, x.train_pos_edge_index, x.train_neg_edge_index
             #return p_z, a_z, z, x.test_pos_edge_index, x.test_neg_edge_index
 
 
@@ -442,6 +463,8 @@ class graphNet(torch.nn.Module):
 
 
         pos_adj_gt = pos_adj_gt.squeeze(0)
+
+        edge_matrix = pos_adj_gt.clone()
 
         #torch.set_printoptions(edgeitems=100)
 
@@ -531,7 +554,7 @@ class graphNet(torch.nn.Module):
 
         print("pos_pred, pos_adj_gt", pos_pred, pos_adj_gt)
 
-        return pos_pred, pos_adj_gt, edge_score, node_score #average_precision_score(pos_adj_gt, pos_pred) #multi_class = 'ovr' or 'ovo' roc_auc_score(y, pred, multi_class='ovo')
+        return pos_pred, pos_adj_gt, edge_matrix, edge_score, node_score #average_precision_score(pos_adj_gt, pos_pred) #multi_class = 'ovr' or 'ovo' roc_auc_score(y, pred, multi_class='ovo')
 
 
     def recon_loss(self, z, pos_edge_index, neg_edge_index=None):
@@ -582,6 +605,9 @@ LR=0.000001
 DATA_AUG = None  #"GCN norm" or "Remove isolated nodes" or None 
 optimizer = torch.optim.Adam(total_model.parameters(), lr=LR) #default lr=0.001
 nllloss = nn.NLLLoss()
+#crossent = nn.CrossEntropyLoss()
+crossent = nn.MSELoss()
+#crossent = nn.L1Loss()
 LAYER_NUM = "3"
 MODEL_NAME = "VGAE" #GAE, VGAE, or ARGVA
 
@@ -617,6 +643,7 @@ for epoch in range(0, 200):
     tr_correct = 0
     val_correct = 0
     test_correct = 0
+    
 
     #Training loop
     total_model.train()
@@ -637,7 +664,7 @@ for epoch in range(0, 200):
 
             optimizer.zero_grad()
 
-            a_z, q_z, train_pos_edge_index, train_neg_edge_index = total_model(graph, train_flag)
+            p_z, a_z, q_z, train_pos_edge_index, train_neg_edge_index = total_model(graph, train_flag)
 
             """
             train_neg_edge_list = []
@@ -657,9 +684,11 @@ for epoch in range(0, 200):
             """
 
             #Compute auc and ap values for the link prediction
-            pos_pred_train, pos_adj_gt_train, edge_score, node_score_train = total_model.test(q_z, train_pos_edge_index, train_neg_edge_index, graph.x)
+            pos_pred_train, pos_adj_gt_train, train_edge_matrix, _, _ = total_model.test(q_z, train_pos_edge_index, train_neg_edge_index, graph.x)
 
-            """
+            print("PREDICTION", pos_pred_train, pos_adj_gt_train)
+
+            
             #Compute acc score for the node classification
             pred = p_z.argmax(dim=1)
 
@@ -672,7 +701,7 @@ for epoch in range(0, 200):
             node_score_train = int(torch.sum(counts_correct)) / train_correct.shape[0]
 
             #node_score_train = int(torch.sum(counts_correct)) / list(graph.batch.shape)[0]  # Derive ratio of correct predictions.
-            
+            """
             
             #Compute action classification
             #az = a_z[0].clone()
@@ -703,17 +732,51 @@ for epoch in range(0, 200):
             """
 
             #Compute action classification
-            pred = int(a_z.argmax(dim=1))  # Use the class with highest probability.
-
-            tr_correct += int((pred == int(graph.y.argmax(dim=0))))  # Check against ground-truth labels.
+            pred_action = int(a_z.argmax(dim=1))  # Use the class with highest probability.
+                     
+            tr_correct += int((pred_action == int(graph.y.argmax(dim=0))))  # Check against ground-truth labels.
 
             tr_counter += 1
 
+            #Compute node and edge prediction
+            """
+            #pred_diag = torch.diagonal(pos_pred_train, 0)
+            #gt_diag = torch.diagonal(pos_adj_gt_train, 0)
+            node_correct = torch.eq(torch.diagonal(pos_pred_train, 0), torch.diagonal(pos_adj_gt_train, 0))
+
+            #node_edge_correct += int(pos_pred_train == pos_adj_gt_train) 
+            print("node_edge_correct", node_correct, torch.diagonal(pos_pred_train, 0), torch.diagonal(pos_adj_gt_train, 0))
+            count_node_correct = (node_correct == True).sum(dim=0)
+            print("count_node_correct", float(count_node_correct), node_correct.shape[0], list(graph.batch.shape)[0])
+
+            node_score_train = float(torch.sum(count_node_correct)) / node_correct.shape[0] #list(graph.batch.shape)[0] 
+            """
+
+            """
+            #zero_edge = np.zeros(graph.batch.shape)
+            zero_edge = np.full(graph.batch.shape, -1)
+            print("zero_edge", zero_edge)
+            pred_edge_train = pos_pred_train.clone()
+            
+            pred_edge_train = pred_edge_train.cpu().detach().numpy()
+
+            row_e, col_e = np.diag_indices(pred_edge_train.shape[0])
+            pred_edge_train[row_e, col_e] = np.array(zero_edge)
+
+            pred_edge_train = torch.from_numpy(pred_edge_train)
+
+            edge_correct = torch.eq(pred_edge_train, train_edge_matrix)
+            print("edge_correct", pred_edge_train, train_edge_matrix, edge_correct)
+            count_edge_correct = (edge_correct == True).sum()   
+            print("count_edge_correct", count_edge_correct, list(graph.edge_attr.shape)[0])
+            
+            edge_score = (float(count_edge_correct)) / ((list(graph.batch.shape)[0] * list(graph.batch.shape)[0]) - list(graph.batch.shape)[0]) #list(graph.edge_attr.shape)[0] 
+            """
 
             #Compute node_loss, link_loss +net_loss
             target_list = torch.argmax(target_list, dim=1)
-            linkloss_nodeloss = F.
-            (pos_pred_train, pos_adj_gt_train, reduction="sum")
+            #target_list = target_list / 21.0
+
             #linkloss = total_model.recon_loss(q_z, train_pos_edge_index)
             #nodeloss = nllloss(p_z, target_list)
 
@@ -721,9 +784,23 @@ for epoch in range(0, 200):
             #actionloss = nllloss(a_z[0].unsqueeze(0), gt_action.unsqueeze(0))  #actionloss = nllloss(az, graph.y)
             actionloss = nllloss(a_z, gt_action.unsqueeze(0)) 
 
+            #pos_pred_train = torch.flatten(pos_pred_train)
+            #pos_adj_gt_train = torch.flatten(pos_adj_gt_train)
+
+            print("pos_pred_train", pos_pred_train.shape, pos_adj_gt_train.shape)
+
+            #linkloss_nodeloss = crossent(pos_pred_train, pos_adj_gt_train)
+
+            print("target", torch.diagonal(pos_pred_train, 0), target_list/21.0)
+
+
+            #linkloss_nodeloss = crossent(torch.diagonal(pos_pred_train, 0), target_list)
+            #linkloss_nodeloss = crossent(pos_pred_train, pos_adj_gt_train)
+            linkloss_nodeloss = nllloss(p_z, target_list)
+
             kl_loss = total_model.model.kl_loss()
 
-            net_loss = linkloss_nodeloss + actionloss #+ nodeloss #+ kl_loss #+ actionloss
+            net_loss = actionloss + linkloss_nodeloss #+ nodeloss #+ kl_loss #+ actionloss
 
             net_loss.backward()
             optimizer.step()
@@ -746,9 +823,9 @@ for epoch in range(0, 200):
             if SUMMARY_WRITER:
                 writer.add_scalar("Net loss/train", net_loss.item(), epoch)
                 #writer.add_scalar("Node loss/train", nodeloss.item(), epoch)
-                writer.add_scalar("Link loss/train", linkloss_nodeloss.item(), epoch)
+                writer.add_scalar("Link and node loss/train", linkloss_nodeloss.item(), epoch)
                 writer.add_scalar("Action loss/train", actionloss.item(), epoch)
-                writer.add_scalar("Link AP/train", edge_score, epoch)
+                #writer.add_scalar("Link AP/train", edge_score, epoch)
                 writer.add_scalar("Node score/train", node_score_train, epoch)
                 #writer.add_scalar("AVG score/train", avg_score_train, epoch)
 
@@ -784,23 +861,23 @@ for epoch in range(0, 200):
 
             target_list = graph.x
 
-            a_z_val, q_z, test_pos_edge_index, test_neg_edge_index = total_model(graph, train)
+            p_z, a_z_val, q_z, test_pos_edge_index, test_neg_edge_index = total_model(graph, train)
 
-            pos_pred_val, pos_adj_gt_val, val_link_ap, val_node_score = total_model.test(q_z, test_pos_edge_index, test_neg_edge_index, graph.x)
+            pos_pred_val, pos_adj_gt_val, val_edge_matrix, _, _ = total_model.test(q_z, test_pos_edge_index, test_neg_edge_index, graph.x)
 
-            """
+            
             #Compute acc score for the node classification
             pred = p_z.argmax(dim=1)
 
             gt = target_list.argmax(dim=1)
             
-            val_correct = torch.eq(pred, gt)
+            val_node_correct = torch.eq(pred, gt)
 
-            counts_val_correct = (val_correct == True).sum(dim=0)
+            counts_val_correct = (val_node_correct == True).sum(dim=0)
 
-            val_node_score = int(torch.sum(counts_val_correct)) / val_correct.shape[0]
+            val_node_score = int(torch.sum(counts_val_correct)) / val_node_correct.shape[0]
             
-            
+            """
             #Compute action classification
             pred_val_action = a_z[0].argmax(dim=0)
 
@@ -829,10 +906,53 @@ for epoch in range(0, 200):
             val_counter += 1
 
 
+            #Compute node and edge prediction
+            """
+            node_correct_val = torch.eq(torch.diagonal(pos_pred_val, 0), torch.diagonal(pos_adj_gt_val, 0))
+            #node_edge_correct += int(pos_pred_train == pos_adj_gt_train) 
+            print("node_edge_correct", node_correct_val)
+            count_node_correct_val = (node_correct_val == True).sum()
+            print("count_node_correct", float(count_node_correct_val), list(graph.batch.shape)[0] )
+
+            val_node_score = float(torch.sum(count_node_correct_val)) / node_correct_val.shape[0] 
+            """
+
+            """
+            #zero_edge = np.zeros(graph.batch.shape)
+            zero_edge = np.full(graph.batch.shape, -1)
+            print("zero_edge", zero_edge)
+            pred_edge_val = pos_pred_val.clone()
+            
+            pred_edge_val = pred_edge_val.cpu().detach().numpy()
+
+            row_e, col_e = np.diag_indices(pred_edge_val.shape[0])
+            pred_edge_val[row_e, col_e] = np.array(zero_edge)
+
+            pred_edge_val = torch.from_numpy(pred_edge_val)
+
+            edge_correct_val = torch.eq(pred_edge_val, val_edge_matrix)
+            #print("edge_correct", pred_edge_train, val_edge_matrix, edge_correct)
+            count_edge_correct_val = (edge_correct_val == True).sum()   
+            #print("count_edge_correct", count_edge_correct, list(graph.edge_attr.shape)[0])
+
+            edge_score = float(count_edge_correct_val) / ((list(graph.batch.shape)[0] * list(graph.batch.shape)[0]) - list(graph.batch.shape)[0])
+            """
+
+            #pos_pred_val = torch.flatten(pos_pred_val)
+            #pos_adj_gt_val = torch.flatten(pos_adj_gt_val)
+
             #Compute node_loss, link_loss +net_loss
             target_list = torch.argmax(target_list, dim=1)
+            #target_list = target_list / 21.0
             #val_linkloss = total_model.recon_loss(q_z, test_pos_edge_index)
-            val_linkloss_nodeloss = F.binary_cross_entropy(pos_pred_val, pos_adj_gt_val, reduction="sum")
+            #val_linkloss_nodeloss = F.binary_cross_entropy(pos_pred_val, pos_adj_gt_val)
+
+            #val_linkloss_nodeloss = crossent(pos_pred_val, pos_adj_gt_val)
+
+            #val_linkloss_nodeloss = crossent(torch.diagonal(pos_pred_val, 0), target_list)
+            #val_linkloss_nodeloss = crossent(pos_pred_val, pos_adj_gt_val)
+            val_linkloss_nodeloss = nllloss(p_z, target_list)
+
             #val_nodeloss = nllloss(p_z, target_list)
             #action_val_loss = nllloss(a_z[0].unsqueeze(0), gt_val_action.unsqueeze(0))
 
@@ -841,14 +961,14 @@ for epoch in range(0, 200):
 
             kl_loss = total_model.model.kl_loss()
 
-            val_netloss = val_linkloss_nodeloss + action_val_loss #+ val_nodeloss #+ kl_loss #+ action_val_loss #+ val_nodeloss 
+            val_netloss = action_val_loss + val_linkloss_nodeloss #+ val_nodeloss #+ kl_loss #+ action_val_loss #+ val_nodeloss
 
             if SUMMARY_WRITER:
                 writer.add_scalar("Net loss/val", val_netloss.item(), epoch)
                 #writer.add_scalar("Node loss/val", val_nodeloss.item(), epoch)
-                writer.add_scalar("Link loss/val", val_linkloss_nodeloss.item(), epoch)
+                writer.add_scalar("Link and node loss/val", val_linkloss_nodeloss.item(), epoch)
                 writer.add_scalar("Action loss/val", action_val_loss.item(), epoch)
-                writer.add_scalar("Link AP/val", val_link_ap, epoch)
+                #writer.add_scalar("Link AP/val", edge_score, epoch)
                 writer.add_scalar("Node score/val", val_node_score, epoch)
                 #writer.add_scalar("AVG score/val", avg_score_val, epoch)
 
@@ -864,7 +984,7 @@ for epoch in range(0, 200):
             '''
 
             #print('Epoch: {:3d}, Val NET loss: {:.4f}, Val node loss: {:.4f}, Val link loss: {:.4f}, AP: {:.4f}'.format(epoch, val_nodeloss, val_linkloss, val_netloss, val_link_ap))
-            print('Epoch: {:3d}, Val NET loss: {:.4f}, Val node loss: , Val link loss: {:.4f}, AP: {:.4f}'.format(epoch, val_netloss, val_linkloss_nodeloss, val_link_ap))
+            print('Epoch: {:3d}, Val NET loss: {:.4f}'.format(epoch, val_netloss)) # Val link loss: {:.4f}, val_linkloss_nodelos))
 
     
     avg_action_val = val_correct / val_counter
@@ -893,7 +1013,7 @@ for epoch in range(0, 200):
 
             train_fl = False
 
-            a_z_test, q_z, test_pos_edge_index, test_neg_edge_index = total_model(graph, train_fl)
+            p_z, a_z_test, q_z, test_pos_edge_index, test_neg_edge_index = total_model(graph, train_fl)
 
 
 	        # Tüm elemanların hepsinin CPU veya GPU'da olmasına dikkat et.
@@ -901,21 +1021,21 @@ for epoch in range(0, 200):
 
 
             #Compute test link auc and ap values
-            pos_pred_test, pos_adj_gt_test, link_test_ap, node_score_test = total_model.test(q_z, test_pos_edge_index, test_neg_edge_index, graph.x)
+            pos_pred_test, pos_adj_gt_test, test_edge_matrix, _, _ = total_model.test(q_z, test_pos_edge_index, test_neg_edge_index, graph.x)
 
-            """
+            
             #Compute acc score for the node classification
             pred = p_z.argmax(dim=1)
 
             gt = target_list.argmax(dim=1)
             
-            test_correct = torch.eq(pred, gt)
+            test_node_correct = torch.eq(pred, gt)
 
-            counts_test_correct = (test_correct == True).sum(dim=0)
+            counts_test_correct = (test_node_correct == True).sum(dim=0)
 
-            node_score_test = int(torch.sum(counts_test_correct)) / test_correct.shape[0]
+            node_score_test = int(torch.sum(counts_test_correct)) / test_node_correct.shape[0]
             
-            
+            """
             #Compute action classification
             pred_test_action = a_z[0].argmax(dim=0)
 
@@ -942,28 +1062,67 @@ for epoch in range(0, 200):
             test_correct += int((pred_test == int(graph.y.argmax(dim=0))))  # Check against ground-truth labels.
 
             test_counter += 1
-        
+
+            """
+            #Compute node and edge prediction
+
+            node_correct_test = torch.eq(torch.diagonal(pos_pred_test, 0), torch.diagonal(pos_adj_gt_test, 0))
+            #node_edge_correct += int(pos_pred_train == pos_adj_gt_train) 
+            count_node_correct_test = (node_correct_test == True).sum()
+
+            node_score_test = float(torch.sum(count_node_correct_test)) / node_correct_test.shape[0] 
+            """
+
+            """
+            #zero_edge = np.zeros(graph.batch.shape)
+            zero_edge = np.full(graph.batch.shape, -1)
+            pred_edge_test = pos_pred_test.clone()
+            
+            pred_edge_test = pos_pred_test.cpu().detach().numpy()
+
+            row_e, col_e = np.diag_indices(pred_edge_test.shape[0])
+            pred_edge_test[row_e, col_e] = np.array(zero_edge)
+
+            pred_edge_test = torch.from_numpy(pred_edge_test)
+
+            edge_correct_test = torch.eq(pred_edge_test, test_edge_matrix)
+            #print("edge_correct", pred_edge_train, train_edge_matrix, edge_correct)
+            count_edge_correct_test = (edge_correct_test == True).sum()   
+            #print("count_edge_correct", count_edge_correct, list(graph.edge_attr.shape)[0])
+
+            edge_score_test = float(count_edge_correct_test) / ((list(graph.batch.shape)[0] * list(graph.batch.shape)[0]) - list(graph.batch.shape)[0])
+            """
+
+            #pos_pred_test = torch.flatten(pos_pred_test)
+            #pos_adj_gt_test = torch.flatten(pos_adj_gt_test)
 
             #Compute node_loss, link_loss +net_loss
             target_list = torch.argmax(target_list, dim=1)
+            #target_list = target_list / 21.0
+
             #linklosstest = total_model.recon_loss(q_z, test_pos_edge_index)
-            linklosstest = F.binary_cross_entropy(pos_pred_test, pos_adj_gt_test, reduction="sum")
+            #linklosstest = F.binary_cross_entropy(pos_pred_test, pos_adj_gt_test, reduction="sum")
             #nodelosstest = nllloss(p_z, target_list)
 
             gt_action_test = graph.y.argmax(dim=0)
             action_test_loss = nllloss(a_z_test, gt_action_test.unsqueeze(0))
 
+            #test_linkloss_nodeloss = crossent(pos_pred_test, pos_adj_gt_test)
+
+            #test_linkloss_nodeloss = crossent(torch.diagonal(pos_pred_test, 0), target_list)
+            #test_linkloss_nodeloss = crossent(pos_pred_test, pos_adj_gt_test)
+            test_linkloss_nodeloss = nllloss(p_z, target_list)
 
             kl_loss = total_model.model.kl_loss()
 
-            net_losstest = linklosstest + action_test_loss#+ nodelosstest #+ kl_loss #+ action_test_loss
+            net_losstest = action_test_loss + test_linkloss_nodeloss #+ nodelosstest #+ kl_loss #+ action_test_loss + linklosstest
 
             if SUMMARY_WRITER:
                 writer.add_scalar("Net loss/test", net_losstest.item(), epoch)
                 #writer.add_scalar("Node loss/test", nodelosstest.item(), epoch)
-                writer.add_scalar("Link loss/test", linklosstest.item(), epoch)
+                writer.add_scalar("Link and node loss/test", test_linkloss_nodeloss.item(), epoch)
                 writer.add_scalar("Action loss/test", action_test_loss.item(), epoch)
-                writer.add_scalar("Link AP/test", link_test_ap, epoch)
+                #writer.add_scalar("Link AP/test", edge_score_test, epoch)
                 writer.add_scalar("Node score/test", node_score_test, epoch)
                 #writer.add_scalar("AVG score/test", avg_score_test, epoch)
 
