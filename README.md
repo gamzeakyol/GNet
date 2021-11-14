@@ -11,12 +11,11 @@ _Gamze Akyol, Sanem Sariel, Eren Erdal Aksoy_
 
 Accepted for publication at 20th International Conference on Advanced Robotics (ICAR).  
 
-\cite{
-@misc{akyol2021variational,
-      title={A Variational Graph Autoencoder for Manipulation Action Recognition and Prediction},
-      author={Gamze Akyol and Sanem Sariel and Eren Erdal Aksoy},
-      year={2021},
-      eprint={2110.13280},
-      archivePrefix={arXiv},
-      primaryClass={cs.CV}
-}}
+@misc{akyol2021variational,  
+      title={A Variational Graph Autoencoder for Manipulation Action Recognition and Prediction},  
+      author={Gamze Akyol and Sanem Sariel and Eren Erdal Aksoy},  
+      year={2021},  
+      eprint={2110.13280},  
+      archivePrefix={arXiv},  
+      primaryClass={cs.CV}  
+}
