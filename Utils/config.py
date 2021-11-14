@@ -1,3 +1,6 @@
+# Adapted from the Github link: https://github.com/dawidejdeholm/dj_graph
+
+
 import Utils.utils as util
 from easydict import EasyDict as edict
 
