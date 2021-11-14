@@ -14,10 +14,10 @@ _Abstract— Despite decades of research, understanding human manipulation activ
 Accepted for publication at 20th International Conference on Advanced Robotics (ICAR).  
 
 @misc{akyol2021variational,  
-      title={A Variational Graph Autoencoder for Manipulation Action Recognition and Prediction},  
-      author={Gamze Akyol and Sanem Sariel and Eren Erdal Aksoy},  
-      year={2021},  
-      eprint={2110.13280},  
-      archivePrefix={arXiv},  
-      primaryClass={cs.CV}  
+    title={A Variational Graph Autoencoder for Manipulation Action Recognition and Prediction},  
+    author={Gamze Akyol and Sanem Sariel and Eren Erdal Aksoy},  
+    year={2021},  
+    eprint={2110.13280},  
+    archivePrefix={arXiv},  
+    primaryClass={cs.CV}  
 }
