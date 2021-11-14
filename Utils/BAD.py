@@ -1,3 +1,6 @@
+# Adapted from the Github link: https://github.com/dawidejdeholm/dj_graph
+
+
 from torch.utils.data import Dataset, DataLoader
 import torch
 import torch.nn as nn
