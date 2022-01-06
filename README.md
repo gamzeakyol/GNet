@@ -19,7 +19,7 @@ Figure: Sample frames from different action classes in the MANIAC dataset (Aksoy
 
 Accepted for publication at 20th International Conference on Advanced Robotics (ICAR).  
 
-@misc{akyol2021variational,  
+`@misc{akyol2021variational,  
     title={A Variational Graph Autoencoder for Manipulation Action Recognition and Prediction},  
     author={Gamze Akyol and Sanem Sariel and Eren Erdal Aksoy},  
     year={2021},  
@@ -27,3 +27,4 @@ Accepted for publication at 20th International Conference on Advanced Robotics (
     archivePrefix={arXiv},  
     primaryClass={cs.CV}  
 }
+`
