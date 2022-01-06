@@ -10,10 +10,10 @@ _Abstract— Despite decades of research, understanding human manipulation activ
 
 
 ## Dataset
-![KeyFrame_005850 (2)](https://user-images.githubusercontent.com/15743753/148391329-0a61cd02-f872-42aa-8251-b0b4e22687a5.png)
-![KeyFrame_005959 (2)](https://user-images.githubusercontent.com/15743753/148391361-adb89525-ff0a-4220-878f-43637c199a14.png)
-![KeyFrame_000438 (2)](https://user-images.githubusercontent.com/15743753/148391371-5ab95005-7340-40df-ad95-2a7df0481284.png)
-![KeyFrame_000705_orange](https://user-images.githubusercontent.com/15743753/148391376-3d8e7a49-17f6-44a7-b784-75cd5d7a523e.png)
+![KeyFrame_005850 (2)](https://user-images.githubusercontent.com/15743753/148391329-0a61cd02-f872-42aa-8251-b0b4e22687a5.png {width=40px})
+![KeyFrame_005959 (2)](https://user-images.githubusercontent.com/15743753/148391361-adb89525-ff0a-4220-878f-43637c199a14.png {width=40px})<br/>
+![KeyFrame_000438 (2)](https://user-images.githubusercontent.com/15743753/148391371-5ab95005-7340-40df-ad95-2a7df0481284.png {width=40px})
+![KeyFrame_000705_orange](https://user-images.githubusercontent.com/15743753/148391376-3d8e7a49-17f6-44a7-b784-75cd5d7a523e.png {width=40px})<br/>
 Sample frames from different action classes in the MANIAC dataset (Aksoy et. al., 2015). The top and bottom rows show the pushing and stirring actions, respectively. Each color here represents a unique image segment (i.e., an object), from which graphs are derived. Relations between “touching” segments are shown with the blue edges.
 
 
